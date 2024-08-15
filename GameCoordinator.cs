@@ -5,7 +5,16 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-public class GameCoordinator
+public interface IGameCoordinator
+{
+    public void EnqueueClient(MessageClient messageClient);
+
+    public void Start();
+
+    public Task Stop();
+}
+
+public class GameCoordinator : IGameCoordinator
 {
     private BlockingCollection<MessageClient> _newClients = new();
     private Dictionary<int, Game> _games = new();
@@ -44,13 +53,19 @@ public class GameCoordinator
             if (!_cancelSource.IsCancellationRequested
                     && _newClients.TryTake(out MessageClient? mc, System.Threading.Timeout.Infinite, _cancelSource.Token))
             {
-                var m = await mc.Receive();
-                if (m.type == 7)
-                {
-                    Console.WriteLine(Encoding.ASCII.GetString(m.data));
-                }
+                var t = Task.Run(async () => await ValidateClient(mc));
             }
         }
+    }
+
+    private async Task ValidateClient(MessageClient mc)
+    {
+        var m = await mc.Receive();
+        if (m.type == 7)
+        {
+            Console.WriteLine(Encoding.ASCII.GetString(m.data));
+        }
+
     }
 
 
