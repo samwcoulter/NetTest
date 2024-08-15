@@ -1,9 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Net.Sockets;
-using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 
 public class Server
 {
@@ -11,6 +9,7 @@ public class Server
     private const int LISTEN_PORT = 9001;
     private List<TcpClient> _clients = new();
     private bool _running = true;
+    private Thread _thread;
     private CancellationTokenSource _cancelSource = new();
 
     private GameCoordinator _coordinator;
@@ -20,47 +19,48 @@ public class Server
     {
         _listener = TcpListener.Create(LISTEN_PORT);
         _coordinator = gc;
+        _thread = new(() => Listen());
     }
 
     public void Start()
     {
-        Task.Run(async () => await Listen());
+        _thread.Start();
     }
 
-    public async Task Stop()
+    public void Stop()
     {
         _running = false;
-        await _cancelSource.CancelAsync();
-        Console.WriteLine("Server: Stopped");
+        _cancelSource.Cancel();
         _cancelSource.Dispose();
+        _thread.Join();
+        Console.WriteLine("Server: Stopped");
     }
 
-    private async Task Listen()
+    private async void Listen()
     {
-        try
+        _listener.Start();
+        while (_running)
         {
-            _listener.Start();
-            while (_running)
+            TcpClient? client = null;
+            try
             {
-                TcpClient? client = null;
-                try
-                {
-                    client = await _listener.AcceptTcpClientAsync(_cancelSource.Token);
-                    MessageClient mc = new(client);
-                    _coordinator.EnqueueClient(mc);
-                }
-                catch (System.Net.Sockets.SocketException sex)
-                {
-                    Console.WriteLine($"Socket Error: {sex}");
-                    client?.Close();
-                    client?.Dispose();
-                }
+                client = await _listener.AcceptTcpClientAsync(_cancelSource.Token);
+                MessageClient mc = new(client);
+                _coordinator.EnqueueClient(mc);
             }
-            _listener.Stop();
+            catch (System.Net.Sockets.SocketException sex)
+            {
+                Console.WriteLine($"Socket Error: {sex}");
+                client?.Close();
+                client?.Dispose();
+            }
+            catch (System.OperationCanceledException)
+            {
+                client?.Close();
+                client?.Dispose();
+                Console.WriteLine($"Server.Listen AcceptTcpClientAsync cancelled");
+            }
         }
-        catch (System.OperationCanceledException)
-        {
-            Console.WriteLine($"Server.Listen AcceptTcpClientAsync cancelled");
-        }
+        _listener.Stop();
     }
 }

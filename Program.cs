@@ -1,8 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Net;
-using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 class NetTest
@@ -24,8 +24,8 @@ class NetTest
                 {
                     case 'q':
                         {
-                            await s.Stop();
-                            await gc.Stop();
+                            s.Stop();
+                            gc.Stop();
                             running = false;
                             break;
                         }
@@ -43,7 +43,8 @@ class NetTest
                                     IPAddress localIpAddress = localhost.AddressList[0];
 
                                     MessageClient client = new(localIpAddress, 9001);
-                                    client.Send(7, Encoding.ASCII.GetBytes($"hello {d}")).Wait();
+                                    ConnectionRequest r = new() { User = "Thisuser", Game = 1 };
+                                    client.Send((Int16)MessageTypes.ConnectionRequest, Serializer.Serialize(r)).Wait();
                                 }));
                             }
                             for (int i = 0; i < 10; i++)

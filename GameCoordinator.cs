@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -11,7 +12,7 @@ public interface IGameCoordinator
 
     public void Start();
 
-    public Task Stop();
+    public void Stop();
 }
 
 public class GameCoordinator : IGameCoordinator
@@ -19,12 +20,14 @@ public class GameCoordinator : IGameCoordinator
     private BlockingCollection<MessageClient> _newClients = new();
     private Dictionary<int, Game> _games = new();
     private bool _running = true;
+    private Thread _thread;
     private CancellationTokenSource _cancelSource = new();
 
     public GameCoordinator()
     {
         // TEST CODE
         _games.Add(1, new Game() { Id = 1 });
+        _thread = new(() => this.Run());
     }
 
     public void EnqueueClient(MessageClient messageClient)
@@ -34,36 +37,46 @@ public class GameCoordinator : IGameCoordinator
 
     public void Start()
     {
-        Task.Run(async () => await Run());
+        _thread.Start();
     }
 
-    public async Task Stop()
+    public void Stop()
     {
         _running = false;
-        if (!_cancelSource.IsCancellationRequested)
-        {
-            await _cancelSource.CancelAsync();
-        }
+        _cancelSource.Cancel();
+        _thread.Join();
     }
 
-    private async Task Run()
+    private void Run()
     {
         while (_running)
         {
-            if (!_cancelSource.IsCancellationRequested
-                    && _newClients.TryTake(out MessageClient? mc, System.Threading.Timeout.Infinite, _cancelSource.Token))
+            try
             {
-                var t = Task.Run(async () => await ValidateClient(mc));
+                if (!_cancelSource.IsCancellationRequested
+                        && _newClients.TryTake(out MessageClient? mc, System.Threading.Timeout.Infinite, _cancelSource.Token))
+                {
+                    ValidateClient(mc);
+                }
+            }
+            catch (System.Net.Sockets.SocketException sex)
+            {
+                Console.WriteLine($"Socket Error: {sex}");
+            }
+            catch (System.OperationCanceledException)
+            {
+                Console.WriteLine($"GameCoordinator.Run Cancelled");
             }
         }
     }
 
-    private async Task ValidateClient(MessageClient mc)
+    private async void ValidateClient(MessageClient mc)
     {
         var m = await mc.Receive();
-        if (m.type == 7)
+        if (m.type == (Int16)MessageTypes.ConnectionRequest)
         {
-            Console.WriteLine(Encoding.ASCII.GetString(m.data));
+            ConnectionRequest r = Serializer.Deserialize<ConnectionRequest>(m.data);
+            Console.WriteLine($"{r.User} {r.Game}");
         }
 
     }
