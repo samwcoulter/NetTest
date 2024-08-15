@@ -1,6 +1,7 @@
 using System;
 using System.Net;
 using System.Net.Sockets;
+using System.Threading.Tasks;
 
 public class MessageClient
 {
@@ -16,10 +17,9 @@ public class MessageClient
             Int16 type = IPAddress.HostToNetworkOrder(h.type);
             bool wroteLength = BitConverter.TryWriteBytes(buffer, length);
 
-            Span<byte> span = buffer;
-            span = span.Slice(sizeof(Int32), sizeof(Int16));
-
+            Span<byte> span = new(buffer, sizeof(Int32), sizeof(Int16));
             bool wroteType = BitConverter.TryWriteBytes(span, type);
+
             if (!(wroteLength && wroteType))
             {
                 throw new Exception($"Unable to serialize {h}");
@@ -34,10 +34,22 @@ public class MessageClient
         }
     }
 
+    public struct Message
+    {
+        public Int16 type;
+        public byte[] data;
+    }
+
     private TcpClient _client;
     private NetworkStream _stream;
-    private byte[] _rHeaderBuffer = new byte[Header.HEADER_BUFFER_SIZE];
-    private byte[] _sHeaderBuffer = new byte[Header.HEADER_BUFFER_SIZE];
+
+    public MessageClient(IPAddress a, int port)
+    {
+        TcpClient client = new();
+        client.Connect(a, port);
+        _client = client;
+        _stream = client.GetStream();
+    }
 
     public MessageClient(TcpClient client)
     {
@@ -51,25 +63,38 @@ public class MessageClient
         _client.Dispose();
     }
 
-    public (Int16, byte[]) Receive()
+    public async Task<Message> Receive()
     {
-        _stream.Read(_rHeaderBuffer, 0, Header.HEADER_BUFFER_SIZE);
-        Header h = Header.Deserialize(_rHeaderBuffer);
-        byte[] buffer = new byte[h.length];
+        byte[] headerBuffer = new byte[Header.HEADER_BUFFER_SIZE];
+        int headerBytesRead = 0;
+        while (headerBytesRead < Header.HEADER_BUFFER_SIZE)
+        {
+            headerBytesRead += await _stream.ReadAsync(headerBuffer, headerBytesRead, Header.HEADER_BUFFER_SIZE - headerBytesRead);
+        }
+        Header h = Header.Deserialize(headerBuffer);
+        Message m = new();
+        m.data = new byte[h.length];
+        m.type = h.type;
         int bytesRead = 0;
         while (bytesRead < h.length)
         {
-            bytesRead += _stream.Read(buffer, bytesRead, h.length - bytesRead);
+            bytesRead += await _stream.ReadAsync(m.data, bytesRead, h.length - bytesRead);
         }
-        return (h.type, buffer);
+        return m;
     }
 
-    public void Send(Int16 messageType, byte[] data)
+    public async Task Send(Message m)
     {
+        await Send(m.type, m.data);
+    }
+
+    public async Task Send(Int16 messageType, byte[] data)
+    {
+        byte[] headerBuffer = new byte[Header.HEADER_BUFFER_SIZE];
         Header h = new Header { length = data.Length, type = messageType };
-        Header.Serialize(h, _sHeaderBuffer);
-        _stream.Write(_sHeaderBuffer, 0, _sHeaderBuffer.Length);
-        _stream.Write(data, 0, data.Length);
+        Header.Serialize(h, headerBuffer);
+        await _stream.WriteAsync(headerBuffer, 0, headerBuffer.Length);
+        await _stream.WriteAsync(data, 0, data.Length);
     }
 
 

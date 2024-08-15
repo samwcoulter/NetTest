@@ -13,15 +13,17 @@ public class Server
     private bool _running = true;
     private CancellationTokenSource _cancelSource = new();
 
+    private GameCoordinator _coordinator;
 
-    public Server()
+
+    public Server(GameCoordinator gc)
     {
         _listener = TcpListener.Create(LISTEN_PORT);
+        _coordinator = gc;
     }
 
     public void Start()
     {
-        var token = _cancelSource.Token;
         Task.Run(async () => await Listen());
     }
 
@@ -44,7 +46,8 @@ public class Server
                 try
                 {
                     client = await _listener.AcceptTcpClientAsync(_cancelSource.Token);
-                    ValidateConnection(client);
+                    MessageClient mc = new(client);
+                    _coordinator.EnqueueClient(mc);
                 }
                 catch (System.Net.Sockets.SocketException sex)
                 {
@@ -59,17 +62,5 @@ public class Server
         {
             Console.WriteLine($"Server.Listen AcceptTcpClientAsync cancelled");
         }
-    }
-
-    private bool ValidateConnection(TcpClient client)
-    {
-        MessageClient mc = new(client);
-        var d = mc.Receive();
-        if (d.Item1 == 7)
-        {
-            Console.WriteLine(Encoding.ASCII.GetString(d.Item2));
-        }
-
-        return true;
     }
 }
