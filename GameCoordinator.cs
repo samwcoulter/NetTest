@@ -80,6 +80,9 @@ public class GameCoordinator : IGameCoordinator
                 ConnectionRequest r = Serializer.Deserialize<ConnectionRequest>(m.data);
                 Console.WriteLine($"{r.User} {r.Game}");
             }
+            else
+            {
+            }
         }
         catch (Exception e)
         {

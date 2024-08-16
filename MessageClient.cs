@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.Tasks;
@@ -42,6 +43,7 @@ public class MessageClient
 
     private TcpClient _client;
     private NetworkStream _stream;
+    private bool _isConnected = true;
 
     public MessageClient(IPAddress a, int port)
     {
@@ -59,26 +61,32 @@ public class MessageClient
 
     ~MessageClient()
     {
-        _stream.Close();
-        _client.Dispose();
+        Disconnect();
     }
 
     public async Task<Message> Receive()
     {
-        byte[] headerBuffer = new byte[Header.HEADER_BUFFER_SIZE];
-        int headerBytesRead = 0;
-        while (headerBytesRead < Header.HEADER_BUFFER_SIZE)
-        {
-            headerBytesRead += await _stream.ReadAsync(headerBuffer, headerBytesRead, Header.HEADER_BUFFER_SIZE - headerBytesRead);
-        }
-        Header h = Header.Deserialize(headerBuffer);
+        byte[] headerBuffer = ArrayPool<byte>.Shared.Rent(Header.HEADER_BUFFER_SIZE);
         Message m = new();
-        m.data = new byte[h.length];
-        m.type = h.type;
-        int bytesRead = 0;
-        while (bytesRead < h.length)
+        try
         {
-            bytesRead += await _stream.ReadAsync(m.data, bytesRead, h.length - bytesRead);
+            int headerBytesRead = 0;
+            while (headerBytesRead < Header.HEADER_BUFFER_SIZE)
+            {
+                headerBytesRead += await _stream.ReadAsync(headerBuffer, headerBytesRead, Header.HEADER_BUFFER_SIZE - headerBytesRead);
+            }
+            Header h = Header.Deserialize(headerBuffer);
+            m.data = new byte[h.length];
+            m.type = h.type;
+            int bytesRead = 0;
+            while (bytesRead < h.length)
+            {
+                bytesRead += await _stream.ReadAsync(m.data, bytesRead, h.length - bytesRead);
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(headerBuffer);
         }
         return m;
     }
@@ -90,11 +98,28 @@ public class MessageClient
 
     public async Task Send(Int16 messageType, byte[] data)
     {
-        byte[] headerBuffer = new byte[Header.HEADER_BUFFER_SIZE];
-        Header h = new Header { length = data.Length, type = messageType };
-        Header.Serialize(h, headerBuffer);
-        await _stream.WriteAsync(headerBuffer, 0, headerBuffer.Length);
-        await _stream.WriteAsync(data, 0, data.Length);
+        byte[] headerBuffer = ArrayPool<byte>.Shared.Rent(Header.HEADER_BUFFER_SIZE);
+        try
+        {
+            Header h = new Header { length = data.Length, type = messageType };
+            Header.Serialize(h, headerBuffer);
+            await _stream.WriteAsync(headerBuffer, 0, Header.HEADER_BUFFER_SIZE);
+            await _stream.WriteAsync(data, 0, data.Length);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(headerBuffer);
+        }
+    }
+
+    public void Disconnect()
+    {
+        if (_isConnected)
+        {
+            _stream.Close();
+            _client.Dispose();
+            _isConnected = false;
+        }
     }
 
 
