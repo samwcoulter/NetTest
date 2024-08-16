@@ -72,11 +72,18 @@ public class GameCoordinator : IGameCoordinator
 
     private async void ValidateClient(MessageClient mc)
     {
-        var m = await mc.Receive();
-        if (m.type == (Int16)MessageTypes.ConnectionRequest)
+        try
         {
-            ConnectionRequest r = Serializer.Deserialize<ConnectionRequest>(m.data);
-            Console.WriteLine($"{r.User} {r.Game}");
+            var m = await mc.Receive();
+            if (m.type == (Int16)MessageTypes.ConnectionRequest)
+            {
+                ConnectionRequest r = Serializer.Deserialize<ConnectionRequest>(m.data);
+                Console.WriteLine($"{r.User} {r.Game}");
+            }
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
         }
 
     }

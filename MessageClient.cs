@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 
 public class MessageClient
 {
-    public struct Header
+    private struct Header
     {
         public const int HEADER_BUFFER_SIZE = sizeof(Int32) + sizeof(Int16);
         public Int32 length;
